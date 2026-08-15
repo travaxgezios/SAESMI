@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SEISMA — Peta Bencana Real-time Indonesia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{
+    --void:#0a0e13;
+    --panel:#121a22;
+    --panel2:#0d141b;
+    --line:#213040;
+    --text:#eef4f8;
+    --dim:#7f95a5;
+    --magma:#ff5a36;
+    --magma-dim:#ff5a3633;
+    --seismic:#33d6c0;
+    --warn:#ffb238;
+    --font-display:'Space Grotesk', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-mono:'JetBrains Mono', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; background:var(--void); color:var(--text); font-family:var(--font-body); overflow:hidden;}
+  #map{position:absolute; inset:0; z-index:0; background:var(--void);}
+  .leaflet-control-attribution{background:rgba(10,14,19,.7) !important; color:var(--dim) !important; font-size:9px !important;}
+  .leaflet-control-attribution a{color:var(--seismic) !important;}
+  .leaflet-control-zoom{display:none;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    position:absolute; top:0; left:0; right:0; z-index:20;
+    padding:12px 14px 0 14px;
+    display:flex; flex-direction:column; gap:8px;
+    pointer-events:none;
+  }
+  .brand-row{
+    display:flex; align-items:center; justify-content:space-between;
+    pointer-events:auto;
+  }
+  .brand{
+    display:flex; align-items:center; gap:9px;
+  }
+  .brand-dot{
+    width:11px; height:11px; border-radius:50%;
+    background:var(--magma);
+    box-shadow:0 0 0 0 rgba(255,90,54,.6);
+    animation:pulse-dot 2s infinite;
+  }
+  @keyframes pulse-dot{
+    0%{box-shadow:0 0 0 0 rgba(255,90,54,.55);}
+    70%{box-shadow:0 0 0 9px rgba(255,90,54,0);}
+    100%{box-shadow:0 0 0 0 rgba(255,90,54,0);}
+  }
+  .brand-name{font-family:var(--font-display); font-weight:700; font-size:17px; letter-spacing:.5px;}
+  .brand-sub{font-family:var(--font-mono); font-size:9px; color:var(--dim); letter-spacing:1px; margin-top:-2px;}
+  .layers-btn{
+    background:var(--panel); border:1px solid var(--line); color:var(--text);
+    width:38px; height:38px; border-radius:11px;
+    display:flex; align-items:center; justify-content:center;
+    backdrop-filter:blur(10px); background:rgba(18,26,34,.82);
+  }
+  .layers-btn svg{width:18px; height:18px;}
+
+  /* ---------- Ticker (signature element) ---------- */
+  .ticker-wrap{
+    pointer-events:auto;
+    background:rgba(13,20,27,.85);
+    backdrop-filter:blur(10px);
+    border:1px solid var(--line);
+    border-radius:12px;
+    overflow:hidden;
+    position:relative;
+    height:34px;
+  }
+  .ticker-wave{
+    position:absolute; inset:0; opacity:.35;
+  }
+  .ticker-wave svg{width:200%; height:100%; animation:wave-scroll 6s linear infinite;}
+  @keyframes wave-scroll{ from{transform:translateX(0);} to{transform:translateX(-50%);} }
+  .ticker-label{
+    position:absolute; left:0; top:0; bottom:0; z-index:2;
+    display:flex; align-items:center; gap:6px;
+    padding:0 10px; background:linear-gradient(90deg, rgba(13,20,27,1) 60%, rgba(13,20,27,0));
+    font-family:var(--font-mono); font-size:9px; color:var(--magma); font-weight:700; letter-spacing:1px;
+  }
+  .ticker-track{
+    display:flex; align-items:center; height:100%;
+    white-space:nowrap;
+    animation:ticker-scroll 22s linear infinite;
+    padding-left:90px;
+    font-family:var(--font-mono); font-size:11.5px; color:var(--text);
+  }
+  .ticker-track span{margin-right:38px; color:var(--dim);}
+  .ticker-track span b{color:var(--text); font-weight:700;}
+  .ticker-track span em{color:var(--magma); font-style:normal; font-weight:700;}
+  @keyframes ticker-scroll{ from{transform:translateX(0);} to{transform:translateX(-50%);} }
+
+  /* ---------- Layer panel ---------- */
+  .layer-panel{
+    position:absolute; top:78px; right:14px; z-index:25;
+    width:230px;
+    background:rgba(18,26,34,.92); backdrop-filter:blur(14px);
+    border:1px solid var(--line); border-radius:14px;
+    padding:14px;
+    transform:translateY(-8px) scale(.97); opacity:0; pointer-events:none;
+    transition:all .18s ease;
+  }
+  .layer-panel.open{ transform:translateY(0) scale(1); opacity:1; pointer-events:auto; }
+  .layer-panel h3{font-family:var(--font-display); font-size:12px; letter-spacing:1px; color:var(--dim); text-transform:uppercase; margin-bottom:10px;}
+  .layer-item{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:9px 0; border-top:1px solid var(--line);
+  }
+  .layer-item:first-of-type{border-top:none;}
+  .layer-item-label{display:flex; align-items:center; gap:9px; font-size:13px;}
+  .layer-swatch{width:9px; height:9px; border-radius:50%;}
+  .layer-note{font-size:10px; color:var(--dim); line-height:1.4; margin-top:8px; padding-top:8px; border-top:1px solid var(--line);}
+  .hazard-pin{
+    width:22px; height:22px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; border:1.4px solid; backdrop-filter:blur(2px);
+  }
+  .switch{position:relative; width:34px; height:19px; flex-shrink:0;}
+  .switch input{opacity:0; width:0; height:0;}
+  .slider{position:absolute; inset:0; background:#25333f; border-radius:20px; transition:.2s; cursor:pointer;}
+  .slider:before{content:""; position:absolute; width:14px; height:14px; left:2.5px; top:2.5px; background:var(--dim); border-radius:50%; transition:.2s;}
+  input:checked + .slider{background:var(--magma-dim); border:1px solid var(--magma);}
+  input:checked + .slider:before{transform:translateX(15px); background:var(--magma);}
+
+  /* ---------- Legend ---------- */
+  .legend{
+    position:absolute; left:14px; bottom:0; z-index:20;
+    background:rgba(18,26,34,.85); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-radius:12px 12px 0 0;
+    padding:9px 12px; display:flex; gap:12px; align-items:center;
+    font-family:var(--font-mono); font-size:9.5px; color:var(--dim);
+    margin-bottom:0;
+  }
+  .legend-scale{display:flex; align-items:center; gap:5px;}
+  .legend-dot{width:9px; height:9px; border-radius:50%;}
+  .legend-sq{width:8px; height:8px; border-radius:2px;}
+  .legend-sep{width:1px; height:12px; background:var(--line);}
+
+  /* ---------- Bottom sheet ---------- */
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; z-index:30;
+    background:rgba(13,20,27,.96); backdrop-filter:blur(16px);
+    border-top:1px solid var(--line);
+    border-radius:18px 18px 0 0;
+    max-height:72vh;
+    transform:translateY(calc(100% - 118px));
+    transition:transform .28s cubic-bezier(.2,.8,.2,1);
+    box-shadow:0 -8px 30px rgba(0,0,0,.4);
+    display:flex; flex-direction:column;
+  }
+  .sheet.expanded{transform:translateY(0);}
+  .sheet-handle{
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+    padding:10px 16px 12px 16px; cursor:pointer; flex-shrink:0;
+  }
+  .grabber{width:36px; height:4px; border-radius:4px; background:var(--line);}
+  .sheet-header{width:100%; display:flex; justify-content:space-between; align-items:baseline;}
+  .sheet-title{font-family:var(--font-display); font-weight:600; font-size:15px;}
+  .sheet-count{font-family:var(--font-mono); font-size:11px; color:var(--dim);}
+  .sheet-body{overflow-y:auto; padding:0 12px 20px 12px; flex:1;}
+  .event-row{
+    display:flex; align-items:center; gap:12px;
+    padding:11px 8px; border-radius:10px; border-bottom:1px solid var(--line);
+  }
+  .event-row:active{background:rgba(255,255,255,.04);}
+  .event-row:last-child{border-bottom:none;}
+  .mag-badge{
+    font-family:var(--font-mono); font-weight:700; font-size:13px;
+    width:40px; height:40px; border-radius:10px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid;
+  }
+  .event-info{flex:1; min-width:0;}
+  .event-place{font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .event-meta{font-family:var(--font-mono); font-size:10.5px; color:var(--dim); margin-top:2px;}
+  .event-src{font-family:var(--font-mono); font-size:8.5px; color:var(--dim); border:1px solid var(--line); border-radius:5px; padding:2px 5px; flex-shrink:0;}
+
+  .empty-state{padding:30px 10px; text-align:center; color:var(--dim); font-size:12.5px;}
+
+  /* ---------- Popup styling ---------- */
+  .leaflet-popup-content-wrapper{
+    background:var(--panel2); color:var(--text); border-radius:12px; border:1px solid var(--line);
+  }
+  .leaflet-popup-tip{background:var(--panel2); border:1px solid var(--line);}
+  .pop{font-family:var(--font-body);}
+  .pop-title{font-family:var(--font-mono); font-weight:700; color:var(--magma); font-size:13px; margin-bottom:4px;}
+  .pop-place{font-size:13px; font-weight:600; margin-bottom:6px;}
+  .pop-row{font-family:var(--font-mono); font-size:10.5px; color:var(--dim); display:flex; justify-content:space-between; margin-top:2px;}
+  .pop-tsunami{margin-top:8px; padding:5px 8px; border-radius:7px; font-size:10.5px; font-family:var(--font-mono);}
+
+  /* ---------- Loading ---------- */
+  .boot{
+    position:absolute; inset:0; z-index:50; background:var(--void);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    transition:opacity .4s ease;
+  }
+  .boot-mark{font-family:var(--font-display); font-weight:700; font-size:22px; letter-spacing:1px;}
+  .boot-wave{width:160px; height:30px;}
+  .boot-sub{font-family:var(--font-mono); font-size:10px; color:var(--dim); letter-spacing:1px;}
+
+  @media (min-width:640px){
+    .sheet{left:14px; right:auto; width:360px; border-radius:16px; bottom:14px; max-height:60vh;}
+    .sheet.expanded{transform:translateY(0);}
+    .sheet:not(.expanded){transform:translateY(calc(100% - 118px + 14px));}
+  }
+</style>
+</head>
+<body>
+
+<div class="boot" id="boot">
+  <div class="boot-mark">SEISMA</div>
+  <svg class="boot-wave" viewBox="0 0 200 30" preserveAspectRatio="none">
+    <polyline points="0,15 20,15 28,4 36,26 44,15 60,15 68,8 76,22 84,15 200,15" fill="none" stroke="#ff5a36" stroke-width="1.6"/>
+  </svg>
+  <div class="boot-sub">MEMUAT DATA SEISMIK...</div>
+</div>
+
+<div id="map"></div>
+
+<div class="topbar">
+  <div class="brand-row">
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <div>
+        <div class="brand-name">SEISMA</div>
+        <div class="brand-sub">PEMANTAU BENCANA REAL-TIME</div>
+      </div>
+    </div>
+    <button class="layers-btn" id="layersBtn" aria-label="Layer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+    </button>
+  </div>
+
+  <div class="ticker-wrap">
+    <div class="ticker-wave">
+      <svg viewBox="0 0 400 34" preserveAspectRatio="none"><polyline points="0,17 20,17 26,6 32,28 38,17 60,17 66,10 72,24 78,17 200,17 220,17 226,6 232,28 238,17 260,17 266,10 272,24 278,17 400,17" fill="none" stroke="#33d6c0" stroke-width="1"/></svg>
+    </div>
+    <div class="ticker-label">● LIVE</div>
+    <div class="ticker-track" id="tickerTrack">
+      <span>Memuat data gempa terbaru...</span>
+    </div>
+  </div>
+</div>
+
+<div class="layer-panel" id="layerPanel">
+  <h3>Lapisan Data</h3>
+  <div class="layer-item">
+    <div class="layer-item-label"><span class="layer-swatch" style="background:#ff5a36"></span>Gempa Indonesia (BMKG)</div>
+    <label class="switch"><input type="checkbox" id="toggleBmkg" checked><span class="slider"></span></label>
+  </div>
+  <div class="layer-item">
+    <div class="layer-item-label"><span class="layer-swatch" style="background:#33d6c0"></span>Gempa Dunia 24 jam (USGS)</div>
+    <label class="switch"><input type="checkbox" id="toggleUsgs"><span class="slider"></span></label>
+  </div>
+  <div class="layer-item">
+    <div class="layer-item-label"><span class="layer-swatch" style="background:#ffb238"></span>Gunung Berapi Aktif</div>
+    <label class="switch"><input type="checkbox" id="toggleVolcano" checked><span class="slider"></span></label>
+  </div>
+  <div class="layer-item">
+    <div class="layer-item-label"><span class="layer-swatch" style="background:#3ab6ff; border-radius:2px;"></span>Laporan Banjir</div>
+    <label class="switch"><input type="checkbox" id="toggleFlood" checked><span class="slider"></span></label>
+  </div>
+  <div class="layer-item">
+    <div class="layer-item-label"><span class="layer-swatch" style="background:#c9a7ff; border-radius:2px;"></span>Cuaca Ekstrem (Angin/Kabut)</div>
+    <label class="switch"><input type="checkbox" id="toggleWeather"><span class="slider"></span></label>
+  </div>
+  <div class="layer-note">Laporan banjir &amp; cuaca ekstrem bersumber dari laporan warga (PetaBencana.id), paling padat di wilayah aktif melapor seperti Jabodetabek.</div>
+</div>
+
+<div class="legend">
+  <span style="color:var(--dim); text-transform:uppercase;">Magnitudo</span>
+  <div class="legend-scale"><span class="legend-dot" style="background:#3ab6ff"></span>&lt;4</div>
+  <div class="legend-scale"><span class="legend-dot" style="background:#ffb238"></span>4–5</div>
+  <div class="legend-scale"><span class="legend-dot" style="background:#ff8a36"></span>5–6</div>
+  <div class="legend-scale"><span class="legend-dot" style="background:#ff5a36"></span>≥6</div>
+  <div class="legend-sep"></div>
+  <div class="legend-scale"><span class="legend-sq" style="background:#3ab6ff"></span>Banjir</div>
+  <div class="legend-scale"><span class="legend-sq" style="background:#c9a7ff"></span>Cuaca ekstrem</div>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-handle" id="sheetHandle">
+    <div class="grabber"></div>
+    <div class="sheet-header">
+      <div class="sheet-title">Aktivitas Terkini</div>
+      <div class="sheet-count" id="sheetCount">— kejadian</div>
+    </div>
+  </div>
+  <div class="sheet-body" id="sheetBody">
+    <div class="empty-state">Memuat data...</div>
+  </div>
+</div>
+
+<script>
+// ---------------- Map setup ----------------
+const map = L.map('map', { zoomControl:false, attributionControl:true }).setView([-2.3, 118], 5);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution:'&copy; OpenStreetMap &copy; CARTO',
+  maxZoom:18, subdomains:'abcd'
+}).addTo(map);
+L.control.zoom({ position:'bottomright' }).addTo(map);
+
+const bmkgLayer = L.layerGroup().addTo(map);
+const usgsLayer = L.layerGroup();
+const volcanoLayer = L.layerGroup().addTo(map);
+const floodLayer = L.layerGroup().addTo(map);
+const weatherLayer = L.layerGroup();
+
+let allEvents = [];
+
+function magColor(m){
+  if(m>=6) return '#ff5a36';
+  if(m>=5) return '#ff8a36';
+  if(m>=4) return '#ffb238';
+  return '#3ab6ff';
+}
+function timeAgo(dateObj){
+  const s = Math.floor((Date.now()-dateObj.getTime())/1000);
+  if(s<60) return s+' dtk lalu';
+  if(s<3600) return Math.floor(s/60)+' mnt lalu';
+  if(s<86400) return Math.floor(s/3600)+' jam lalu';
+  return Math.floor(s/86400)+' hari lalu';
+}
+
+const HAZARD_CFG = {
+  flood: {color:'#3ab6ff', symbol:'💧', label:'BANJIR'},
+  wind:  {color:'#c9a7ff', symbol:'🌬️', label:'ANGIN KENCANG'},
+  haze:  {color:'#9aa5ad', symbol:'🌫️', label:'KABUT ASAP'}
+};
+function hazardIcon(type){
+  const cfg = HAZARD_CFG[type] || {color:'#9aa5ad', symbol:'⚠️'};
+  return L.divIcon({
+    className:'',
+    html:`<div class="hazard-pin" style="background:${cfg.color}30; border-color:${cfg.color}; color:${cfg.color};">${cfg.symbol}</div>`,
+    iconSize:[22,22], iconAnchor:[11,11]
+  });
+}
+
+function makeMarker(lat, lon, mag, source){
+  const color = magColor(mag);
+  const radius = 5 + Math.min(mag,7)*2.1;
+  return L.circleMarker([lat,lon], {
+    radius, color, weight:1.5, fillColor:color, fillOpacity:.28,
+    opacity:.9
+  });
+}
+
+// ---------------- BMKG (gempa Indonesia) ----------------
+async function loadBMKG(){
+  try{
+    const res = await fetch('https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json');
+    const data = await res.json();
+    const list = data.Infogempa.gempa;
+    bmkgLayer.clearLayers();
+    const evs = [];
+    list.forEach(g=>{
+      const [latS, lonS] = g.Coordinates.split(',');
+      const lat = parseFloat(latS), lon = parseFloat(lonS);
+      const mag = parseFloat(g.Magnitude);
+      const dateStr = g.Tanggal + ' ' + g.Jam.split(' ')[0];
+      const marker = makeMarker(lat, lon, mag, 'BMKG');
+      marker.bindPopup(`
+        <div class="pop">
+          <div class="pop-title">M ${g.Magnitude} — BMKG</div>
+          <div class="pop-place">${g.Wilayah}</div>
+          <div class="pop-row"><span>Kedalaman</span><span>${g.Kedalaman}</span></div>
+          <div class="pop-row"><span>Waktu</span><span>${g.Tanggal}, ${g.Jam}</span></div>
+        </div>
+      `);
+      marker.addTo(bmkgLayer);
+      evs.push({
+        source:'BMKG', mag, place:g.Wilayah, depth:g.Kedalaman,
+        time:g.Jam, dateLabel:g.Tanggal, lat, lon,
+        sortTime: new Date(g.DateTime || (g.Tanggal+' '+g.Jam)).getTime() || Date.now()
+      });
+    });
+    return evs;
+  }catch(e){
+    console.error('BMKG error', e);
+    return [];
+  }
+}
+
+// ---------------- USGS (gempa dunia) ----------------
+async function loadUSGS(){
+  try{
+    const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson');
+    const data = await res.json();
+    usgsLayer.clearLayers();
+    const evs = [];
+    data.features.forEach(f=>{
+      const mag = f.properties.mag || 0;
+      const [lon, lat] = f.geometry.coordinates;
+      const marker = makeMarker(lat, lon, mag, 'USGS');
+      const t = new Date(f.properties.time);
+      marker.bindPopup(`
+        <div class="pop">
+          <div class="pop-title" style="color:#33d6c0">M ${mag.toFixed(1)} — USGS</div>
+          <div class="pop-place">${f.properties.place || '—'}</div>
+          <div class="pop-row"><span>Waktu</span><span>${t.toLocaleString('id-ID')}</span></div>
+        </div>
+      `);
+      marker.addTo(usgsLayer);
+      evs.push({
+        source:'USGS', mag, place:f.properties.place || '—',
+        depth:(f.geometry.coordinates[2]?.toFixed(0)||'—')+' km',
+        time:t.toLocaleTimeString('id-ID'), dateLabel:t.toLocaleDateString('id-ID'),
+        lat, lon, sortTime:f.properties.time
+      });
+    });
+    return evs;
+  }catch(e){
+    console.error('USGS error', e);
+    return [];
+  }
+}
+
+// ---------------- Banjir & Cuaca Ekstrem (laporan warga via PetaBencana.id) ----------------
+async function loadPetaBencana(){
+  try{
+    const res = await fetch('https://data.petabencana.id/reports?geoformat=geojson&timeperiod=86400');
+    const data = await res.json();
+    const feats = (data.result && data.result.features) ? data.result.features : [];
+    floodLayer.clearLayers();
+    weatherLayer.clearLayers();
+    const evs = [];
+    feats.forEach(f=>{
+      const type = f.properties.disaster_type;
+      if(!HAZARD_CFG[type]) return;
+      const [lon, lat] = f.geometry.coordinates;
+      if(!lat && !lon) return; // buang koordinat kosong
+      const cfg = HAZARD_CFG[type];
+      const marker = L.marker([lat, lon], { icon: hazardIcon(type) });
+      const t = new Date(f.properties.created_at);
+      const text = (f.properties.text && f.properties.text.trim()) ? f.properties.text.trim().slice(0,140) : 'Tidak ada deskripsi tambahan dari pelapor.';
+      marker.bindPopup(`
+        <div class="pop">
+          <div class="pop-title" style="color:${cfg.color}">${cfg.label} — LAPORAN WARGA</div>
+          <div class="pop-place">${text}</div>
+          <div class="pop-row"><span>Waktu</span><span>${t.toLocaleString('id-ID')}</span></div>
+          <div class="pop-row"><span>Sumber</span><span>${f.properties.source || '—'}</span></div>
+        </div>
+      `);
+      if(type==='flood') marker.addTo(floodLayer); else marker.addTo(weatherLayer);
+      evs.push({
+        source:'PetaBencana', type, mag:null, hazardLabel:cfg.label,
+        place:text, depth:'—',
+        time:t.toLocaleTimeString('id-ID'), dateLabel:t.toLocaleDateString('id-ID'),
+        lat, lon, sortTime: f.properties.created_at ? new Date(f.properties.created_at).getTime() : Date.now()
+      });
+    });
+    return evs;
+  }catch(e){
+    console.error('PetaBencana error', e);
+    return [];
+  }
+}
+
+// ---------------- Gunung Berapi (statis, arahkan ke MAGMA/PVMBG untuk status resmi) ----------------
+const volcanoes = [
+  {name:'Merapi', lat:-7.5407, lon:110.4457, prov:'Jawa Tengah/DIY'},
+  {name:'Semeru', lat:-8.1080, lon:112.9220, prov:'Jawa Timur'},
+  {name:'Kelud', lat:-7.9306, lon:112.3083, prov:'Jawa Timur'},
+  {name:'Anak Krakatau', lat:-6.1017, lon:105.4230, prov:'Selat Sunda'},
+  {name:'Sinabung', lat:3.1700, lon:98.3920, prov:'Sumatera Utara'},
+  {name:'Ile Lewotolok', lat:-8.2740, lon:123.5060, prov:'NTT'},
+  {name:'Lewotobi Laki-laki', lat:-8.5420, lon:122.7750, prov:'NTT'},
+  {name:'Ibu', lat:1.4880, lon:127.6300, prov:'Maluku Utara'},
+  {name:'Dukono', lat:1.6930, lon:127.8940, prov:'Maluku Utara'},
+  {name:'Marapi', lat:-0.3810, lon:100.4730, prov:'Sumatera Barat'},
+  {name:'Agung', lat:-8.3430, lon:115.5080, prov:'Bali'},
+  {name:'Karangetang', lat:2.7810, lon:125.4070, prov:'Sulawesi Utara'},
+];
+volcanoes.forEach(v=>{
+  const marker = L.circleMarker([v.lat, v.lon], {
+    radius:7, color:'#ffb238', weight:1.5, fillColor:'#ffb238', fillOpacity:.35
+  });
+  marker.bindPopup(`
+    <div class="pop">
+      <div class="pop-title" style="color:#ffb238">GUNUNG BERAPI</div>
+      <div class="pop-place">${v.name}</div>
+      <div class="pop-row"><span>Wilayah</span><span>${v.prov}</span></div>
+      <div class="pop-tsunami" style="background:#ffb23822; color:#ffb238;">
+        Cek level aktivitas resmi &amp; terkini di
+        <a href="https://magma.esdm.go.id" target="_blank" style="color:#ffb238;">MAGMA Indonesia (PVMBG)</a>
+      </div>
+    </div>
+  `);
+  marker.addTo(volcanoLayer);
+});
+
+// ---------------- Render list & ticker ----------------
+function renderSheet(events){
+  const body = document.getElementById('sheetBody');
+  const count = document.getElementById('sheetCount');
+  count.textContent = events.length + ' kejadian';
+  if(events.length===0){
+    body.innerHTML = '<div class="empty-state">Belum ada data untuk lapisan yang aktif.</div>';
+    return;
+  }
+  body.innerHTML = events.map(e=>{
+    if(e.mag != null){
+      const color = magColor(e.mag);
+      return `
+        <div class="event-row" data-lat="${e.lat}" data-lon="${e.lon}">
+          <div class="mag-badge" style="border-color:${color}; color:${color}; background:${color}18;">${e.mag.toFixed(1)}</div>
+          <div class="event-info">
+            <div class="event-place">${e.place}</div>
+            <div class="event-meta">${e.dateLabel} · ${e.time} · ${e.depth}</div>
+          </div>
+          <div class="event-src">${e.source}</div>
+        </div>
+      `;
+    }
+    const cfg = HAZARD_CFG[e.type] || {color:'#9aa5ad', symbol:'⚠️'};
+    return `
+      <div class="event-row" data-lat="${e.lat}" data-lon="${e.lon}">
+        <div class="mag-badge" style="border-color:${cfg.color}; color:${cfg.color}; background:${cfg.color}18; font-size:16px;">${cfg.symbol}</div>
+        <div class="event-info">
+          <div class="event-place">${e.hazardLabel}: ${e.place}</div>
+          <div class="event-meta">${e.dateLabel} · ${e.time}</div>
+        </div>
+        <div class="event-src">Warga</div>
+      </div>
+    `;
+  }).join('');
+  body.querySelectorAll('.event-row').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      const lat = parseFloat(row.dataset.lat), lon = parseFloat(row.dataset.lon);
+      map.flyTo([lat,lon], 8, { duration:.9 });
+      document.getElementById('sheet').classList.remove('expanded');
+    });
+  });
+}
+
+function renderTicker(events){
+  const track = document.getElementById('tickerTrack');
+  if(events.length===0){ track.innerHTML = '<span>Tidak ada data gempa terbaru.</span>'; return; }
+  const top = events.slice(0,10);
+  const items = top.map(e=> e.mag!=null
+    ? `<span><b>M${e.mag.toFixed(1)}</b> ${e.place} <em>· ${e.source}</em></span>`
+    : `<span><b>${e.hazardLabel}</b> ${e.place} <em>· Laporan Warga</em></span>`
+  ).join('');
+  track.innerHTML = items + items; // duplicate for seamless loop
+}
+
+function currentActiveEvents(){
+  let evs = [];
+  if(document.getElementById('toggleBmkg').checked) evs = evs.concat(allEvents.filter(e=>e.source==='BMKG'));
+  if(document.getElementById('toggleUsgs').checked) evs = evs.concat(allEvents.filter(e=>e.source==='USGS'));
+  if(document.getElementById('toggleFlood').checked) evs = evs.concat(allEvents.filter(e=>e.source==='PetaBencana' && e.type==='flood'));
+  if(document.getElementById('toggleWeather').checked) evs = evs.concat(allEvents.filter(e=>e.source==='PetaBencana' && e.type!=='flood'));
+  evs.sort((a,b)=> b.sortTime - a.sortTime);
+  return evs;
+}
+
+async function refreshAll(){
+  const [bmkg, usgs, peta] = await Promise.all([loadBMKG(), loadUSGS(), loadPetaBencana()]);
+  allEvents = bmkg.concat(usgs).concat(peta);
+  const active = currentActiveEvents();
+  renderSheet(active);
+  renderTicker(active.length ? active : bmkg);
+}
+
+// ---------------- Interactions ----------------
+const layerPanel = document.getElementById('layerPanel');
+document.getElementById('layersBtn').addEventListener('click', ()=> layerPanel.classList.toggle('open'));
+document.addEventListener('click', (e)=>{
+  if(!layerPanel.contains(e.target) && e.target.id!=='layersBtn' && !document.getElementById('layersBtn').contains(e.target)){
+    layerPanel.classList.remove('open');
+  }
+});
+
+document.getElementById('toggleBmkg').addEventListener('change', e=>{
+  if(e.target.checked) map.addLayer(bmkgLayer); else map.removeLayer(bmkgLayer);
+  renderSheet(currentActiveEvents());
+});
+document.getElementById('toggleUsgs').addEventListener('change', e=>{
+  if(e.target.checked) map.addLayer(usgsLayer); else map.removeLayer(usgsLayer);
+  renderSheet(currentActiveEvents());
+});
+document.getElementById('toggleVolcano').addEventListener('change', e=>{
+  if(e.target.checked) map.addLayer(volcanoLayer); else map.removeLayer(volcanoLayer);
+});
+document.getElementById('toggleFlood').addEventListener('change', e=>{
+  if(e.target.checked) map.addLayer(floodLayer); else map.removeLayer(floodLayer);
+  renderSheet(currentActiveEvents());
+});
+document.getElementById('toggleWeather').addEventListener('change', e=>{
+  if(e.target.checked) map.addLayer(weatherLayer); else map.removeLayer(weatherLayer);
+  renderSheet(currentActiveEvents());
+});
+
+const sheet = document.getElementById('sheet');
+document.getElementById('sheetHandle').addEventListener('click', ()=> sheet.classList.toggle('expanded'));
+
+// swipe support for sheet
+let touchStartY = null;
+sheet.addEventListener('touchstart', e=>{ touchStartY = e.touches[0].clientY; }, {passive:true});
+sheet.addEventListener('touchend', e=>{
+  if(touchStartY===null) return;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if(dy < -30) sheet.classList.add('expanded');
+  if(dy > 30) sheet.classList.remove('expanded');
+  touchStartY = null;
+}, {passive:true});
+
+// ---------------- Boot ----------------
+refreshAll().then(()=>{
+  const boot = document.getElementById('boot');
+  boot.style.opacity = '0';
+  setTimeout(()=> boot.style.display='none', 400);
+});
+setInterval(refreshAll, 60000);
+</script>
+</body>
+</html>
